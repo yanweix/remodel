@@ -145,7 +145,14 @@ function propertyFromAttribute(attribute:ValueObject.Attribute):ObjC.Property {
 }
 
 function isImportRequiredForAttribute(typeLookups:ObjectGeneration.TypeLookup[], attribute:ValueObject.Attribute):boolean {
-  return ObjCImportUtils.shouldIncludeImportForType(typeLookups, attribute.type.name);
+  const shouldIncludeImportForTypeName = ObjCImportUtils.shouldIncludeImportForType(typeLookups, attribute.type.name);
+  return Maybe.match(
+    function (protocol) {
+      return shouldIncludeImportForTypeName || ObjCImportUtils.shouldIncludeImportForType(typeLookups, protocol);
+    },
+    function () {
+      return shouldIncludeImportForTypeName;
+    }, attribute.type.conformingProtocol);
 }
 
 function isImportRequiredForTypeLookup(valueType:ValueObject.Type, typeLookup:ObjectGeneration.TypeLookup):boolean {
@@ -181,14 +188,34 @@ function forwardDeclarationForTypeLookup(typeLookup:ObjectGeneration.TypeLookup)
   return ObjC.ForwardDeclaration.ForwardClassDeclaration(typeLookup.name);
 }
 
-function shouldForwardDeclareAttribute(valueTypeName:string, makePublicImports:boolean, attribute:ValueObject.Attribute):boolean {
+function shouldForwardClassDeclareAttribute(valueTypeName:string, makePublicImports:boolean, attribute:ValueObject.Attribute):boolean {
   const declaringPublicAttributes = !makePublicImports && ObjCImportUtils.canForwardDeclareTypeForAttribute(attribute);
   const attributeTypeReferencesObjectType = valueTypeName == attribute.type.name;
   return declaringPublicAttributes || attributeTypeReferencesObjectType;
 }
 
-function forwardDeclarationForAttribute(attribute:ValueObject.Attribute): ObjC.ForwardDeclaration {
+function shouldForwardProtocolDeclareAttribute(attribute:ValueObject.Attribute):boolean {
+  return Maybe.match(
+    function (protocol) {
+      return true;
+    },
+    function () {
+      return false;
+    }, attribute.type.conformingProtocol);
+}
+
+function forwardClassDeclarationForAttribute(attribute:ValueObject.Attribute): ObjC.ForwardDeclaration {
   return ObjC.ForwardDeclaration.ForwardClassDeclaration(attribute.type.name);
+}
+
+function forwardProtocolDeclarationForAttribute(attribute:ValueObject.Attribute): ObjC.ForwardDeclaration {
+  return Maybe.match(
+    function (protocol) {
+      return ObjC.ForwardDeclaration.ForwardProtocolDeclaration(protocol);
+    },
+    function () {
+      return undefined;
+    }, attribute.type.conformingProtocol);
 }
 
 export function createPlugin():ValueObject.Plugin {
@@ -209,11 +236,15 @@ export function createPlugin():ValueObject.Plugin {
       return Maybe.Nothing<Code.FileType>();
     },
     forwardDeclarations: function(valueType:ValueObject.Type):ObjC.ForwardDeclaration[] {
+      const makePublicImports = makePublicImportsForValueType(valueType);
       const typeLookupForwardDeclarations = valueType.typeLookups.filter(FunctionUtils.pApplyf2(valueType, isForwardDeclarationRequiredForTypeLookup))
                                                                  .map(forwardDeclarationForTypeLookup);
-      const attributeForwardDeclarations = valueType.attributes.filter(FunctionUtils.pApply2f3(valueType.typeName, makePublicImportsForValueType(valueType), shouldForwardDeclareAttribute))
-                                                               .map(forwardDeclarationForAttribute);
-      return [].concat(typeLookupForwardDeclarations).concat(attributeForwardDeclarations);
+      const attributeForwardClassDeclarations = valueType.attributes.filter(FunctionUtils.pApply2f3(valueType.typeName, makePublicImports, shouldForwardClassDeclareAttribute))
+                                                                    .map(forwardClassDeclarationForAttribute);
+      const attributeForwardProtocolDeclarations = makePublicImports
+        ? []
+        : valueType.attributes.filter(shouldForwardProtocolDeclareAttribute).map(forwardProtocolDeclarationForAttribute);
+      return [].concat(typeLookupForwardDeclarations).concat(attributeForwardClassDeclarations).concat(attributeForwardProtocolDeclarations);
     },
     functions: function(valueType:ValueObject.Type):ObjC.Function[] {
       return [];
@@ -233,7 +264,7 @@ export function createPlugin():ValueObject.Plugin {
       const typeLookupImports = valueType.typeLookups.filter(FunctionUtils.pApplyf2(valueType, isImportRequiredForTypeLookup))
                                                      .map(FunctionUtils.pApply2f3(valueType.libraryName, makePublicImportsForValueType(valueType), ObjCImportUtils.importForTypeLookup));
       const attributeImports = valueType.attributes.filter(FunctionUtils.pApplyf2(valueType.typeLookups, isImportRequiredForAttribute))
-                                                 .map(FunctionUtils.pApply2f3(valueType.libraryName, makePublicImports, importForAttribute));
+                                                   .map(FunctionUtils.pApply2f3(valueType.libraryName, makePublicImports, importForAttribute));
       return baseImports.concat(typeLookupImports).concat(attributeImports);
     },
     instanceMethods: function(valueType:ValueObject.Type):ObjC.Method[] {

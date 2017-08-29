@@ -39,7 +39,8 @@ function fetchStatusAttributeForAttribute(attribute:ValueObject.Attribute):Value
       libraryTypeIsDefinedIn:Maybe.Nothing<string>(),
       name:'BOOL',
       reference:'BOOL',
-      underlyingType:Maybe.Nothing<string>()
+      underlyingType:Maybe.Nothing<string>(),
+      conformingProtocol:Maybe.Nothing<string>()
     }
   };
 }
@@ -76,7 +77,8 @@ function fetchStatusAttributeForValueType(valueType:ValueObject.Type):ValueObjec
       libraryTypeIsDefinedIn:valueType.libraryName,
       name:fetchStatusTypeName,
       reference:ValueObjectUtils.typeReferenceForValueTypeWithName(fetchStatusTypeName),
-      underlyingType:Maybe.Just<string>('NSObject')
+      underlyingType:Maybe.Just<string>('NSObject'),
+      conformingProtocol:Maybe.Nothing<string>()
     }
   };
 }
